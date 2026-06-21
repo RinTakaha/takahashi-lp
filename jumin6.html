@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>住民管理システム 🐱</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+
+<!-- ★ ここにFirebaseの設定を入れる ★ -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getDatabase, ref, onValue, push, set, remove, update }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyAjRYH6X-Hr5H67ZecPvD22YqpG8lBnSro",
+    authDomain:        "kodomogatukurumachi.firebaseapp.com",
+    databaseURL:       "https://kodomogatukurumachi-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "kodomogatukurumachi",
+    storageBucket:     "kodomogatukurumachi.firebasestorage.app",
+    messagingSenderId: "1085232742547",
+    appId:             "1:1085232742547:web:6a12681c5f79ab4577cd66"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  const juminRef = ref(db, "jumin");
+
+  // DBの変更をリアルタイムで受け取る
+  onValue(juminRef, (snapshot) => {
+    const raw = snapshot.val() || {};
+    // オブジェクト→配列に変換し、番号順にソート
+    window._dbData = Object.entries(raw).map(([fbKey, v]) => ({ fbKey, ...v }))
+      .sort((a,b) => parseInt(a.num) - parseInt(b.num));
+    if(window._loggedIn) renderList();
+  });
+
+  // 追加
+  window.dbAdd = async (name, tel, parentNum) => {
+    const data = window._dbData || [];
+    let num;
+    if(parentNum){
+      // 兄弟モード：同じ親番号のサフィックスを調べてa,b,c...を割り当て
+      const siblings = data.filter(d => d.num === parentNum || d.num.startsWith(parentNum) && /[a-z]$/.test(d.num));
+      // 親番号そのものが存在するか確認
+      const parentExists = data.find(d => d.num === parentNum);
+      if(!parentExists){ throw new Error("親番号が存在しません"); }
+      // 使われているサフィックスを収集
+      const usedSuffixes = siblings
+        .map(d => d.num.replace(parentNum,""))
+        .filter(s => /^[a-z]+$/.test(s));
+      // 次のアルファベットを決定
+      const alpha = "abcdefghijklmnopqrstuvwxyz";
+      let nextSuffix = "a";
+      for(let i=0;i<alpha.length;i++){
+        if(!usedSuffixes.includes(alpha[i])){ nextSuffix=alpha[i]; break; }
+      }
+      num = parentNum + nextSuffix;
+    } else {
+      let maxNum = 0;
+      if(data.length){
+        data.forEach(d=>{
+          const n = parseInt(d.num);
+          if(!isNaN(n) && n > maxNum) maxNum = n;
+        });
+      }
+      num = String(maxNum + 1).padStart(3,"0");
+    }
+    await push(juminRef, { num, name, tel });
+  };
+
+  // 編集
+  window.dbUpdate = async (fbKey, name, tel) => {
+    await update(ref(db, `jumin/${fbKey}`), { name, tel });
+  };
+
+  // 削除
+  window.dbDelete = async (fbKey) => {
+    await remove(ref(db, `jumin/${fbKey}`));
+  };
+
+  // 全削除
+  window.dbNuke = async () => {
+    await set(juminRef, null);
+  };
+</script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f0;min-height:100vh;color:#1a1a1a}
+.app{max-width:480px;margin:0 auto;padding:16px}
+input,button{font-family:inherit}
+.card{background:#fff;border:0.5px solid rgba(0,0,0,0.12);border-radius:12px;padding:16px;margin-bottom:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;background:transparent;color:#1a1a1a;cursor:pointer;font-size:14px;transition:background 0.15s;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.btn:hover{background:rgba(0,0,0,0.06)}
+.btn:active{transform:scale(0.97)}
+.btn-primary{background:#1D9E75;color:#fff;border-color:#1D9E75}
+.btn-primary:hover{background:#0F6E56}
+.btn-danger{background:#E24B4A;color:#fff;border-color:#E24B4A}
+.btn-danger:hover{background:#A32D2D}
+.btn-sm{padding:8px 12px;font-size:13px;min-height:36px}
+input[type=text],input[type=tel]{width:100%;padding:10px 12px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;background:#fff;color:#1a1a1a;font-size:16px;margin-top:4px;-webkit-appearance:none}
+input:focus{outline:none;border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,0.15)}
+label{font-size:13px;color:#666}
+.tag-num{background:#E1F5EE;color:#0F6E56;display:inline-block;padding:3px 8px;border-radius:99px;font-size:12px;font-weight:500;min-width:46px;text-align:center}
+.jumin-row{display:flex;align-items:center;gap:8px;padding:11px 0;border-bottom:0.5px solid rgba(0,0,0,0.08)}
+.jumin-row:last-child{border-bottom:none}
+.jumin-name{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jumin-tel{font-size:13px;color:#666;white-space:nowrap}
+.jumin-actions{display:flex;gap:4px;flex-shrink:0}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100}
+.modal{background:#fff;border-radius:12px;padding:20px;width:100%;max-width:340px}
+.help-section{margin-bottom:14px}
+.help-section h3{font-size:14px;font-weight:500;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.help-section p{font-size:13px;color:#666;line-height:1.6}
+.empty-state{text-align:center;padding:28px;color:#999;font-size:14px}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#1D9E75;display:inline-block;margin-right:4px;animation:pulse 2s infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ログイン -->
+<div id="login-view">
+  <div class="card" style="text-align:center;padding:32px 20px;margin-top:40px">
+    <div style="font-size:52px;margin-bottom:8px">🐱</div>
+    <div style="font-size:20px;font-weight:500;margin-bottom:4px">住民管理システム</div>
+
+    <div style="text-align:left;margin-bottom:20px">
+      <label>パスワード</label>
+      <input type="text" id="pw-input" placeholder="パスワードを入力" style="font-size:18px;letter-spacing:2px" autocomplete="off" />
+    </div>
+    <div id="pw-error" style="color:#E24B4A;font-size:13px;margin-bottom:12px;display:none">パスワードが違います</div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px" onclick="tryLogin()">
+      <i class="ti ti-login"></i> ログイン
+    </button>
+  </div>
+</div>
+
+<!-- メイン -->
+<div id="main-view" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:22px">🐱</span>
+      <span style="font-size:16px;font-weight:500">住民管理</span>
+      <span style="font-size:12px;color:#1D9E75"><span class="sync-dot"></span>リアルタイム同期中</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+      <button class="btn btn-sm" onclick="showHelp()"><i class="ti ti-help"></i> ヘルプ</button>
+      <button class="btn btn-sm btn-danger" onclick="confirmNuke()"><i class="ti ti-bomb"></i> 粉砕！</button>
+      <button class="btn btn-sm" onclick="logout()" aria-label="ログアウト"><i class="ti ti-logout"></i></button>
+    </div>
+  </div>
+  <div class="card">
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input type="text" id="search-input" placeholder="名前・電話番号・番号で検索" style="flex:1;min-width:0" oninput="renderList()" />
+      <button class="btn btn-primary btn-sm" onclick="showAddModal()" style="white-space:nowrap;flex-shrink:0">
+        <i class="ti ti-user-plus"></i> 新規追加
+      </button>
+    </div>
+    <div style="font-size:15px;font-weight:500;margin-bottom:10px">
+      住民一覧 <span id="count-badge" style="font-size:13px;color:#666;font-weight:400"></span>
+    </div>
+    <div id="jumin-list"></div>
+  </div>
+</div>
+
+<!-- 追加・編集モーダル -->
+<div id="add-modal-view" style="display:none">
+  <div class="modal-bg" onclick="modalBgClick(event)">
+    <div class="modal">
+      <div style="font-size:16px;font-weight:500;margin-bottom:16px" id="modal-title">新規住民追加</div>
+      <div style="margin-bottom:12px">
+        <label>名前（ひらがな） <span style="color:#E24B4A">*</span></label>
+        <input type="text" id="inp-name" placeholder="やまだ たろう" />
+      </div>
+      <div style="margin-bottom:12px">
+        <label>電話番号 <span style="color:#E24B4A">*</span></label>
+        <input type="tel" id="inp-tel" placeholder="090-0000-0000" oninput="autoHyphenTel(this)" />
+      </div>
+      <div id="sibling-row" style="margin-bottom:14px;padding:10px;background:#f5f5f0;border-radius:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#1a1a1a">
+          <input type="checkbox" id="inp-sibling" onchange="toggleSiblingSelect()" style="width:16px;height:16px;cursor:pointer" />
+          兄弟として登録する
+        </label>
+        <div id="sibling-select-wrap" style="display:none;margin-top:8px">
+          <label>親の番号を選択</label>
+          <select id="inp-parent-num" onchange="updateSiblingAssign(this.value)" style="width:100%;padding:8px 10px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;font-size:15px;margin-top:4px;background:#fff"></select>
+        </div>
+      </div>
+      <div id="modal-assign" style="font-size:13px;color:#666;margin-bottom:14px"></div>
+      <div id="modal-err" style="color:#E24B4A;font-size:13px;margin-bottom:8px;display:none"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-sm" onclick="closeModal()">キャンセル</button>
+        <button class="btn btn-primary btn-sm" id="modal-save-btn" onclick="saveModal()">
+          <i class="ti ti-check"></i> 保存
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 削除確認モーダル -->
+<div id="delete-modal-view" style="display:none">
+  <div class="modal-bg">
+    <div class="modal" style="text-align:center">
+      <div style="font-size:28px;margin-bottom:8px">🗑️</div>
+      <div style="font-size:15px;font-weight:500;margin-bottom:10px">この住民を削除しますか？</div>
+      <div id="delete-preview" style="background:#f5f5f0;border-radius:8px;padding:12px;margin-bottom:12px;font-size:14px;line-height:2;text-align:left"></div>
+      <div style="font-size:12px;color:#999;margin-bottom:16px">番号・名前・連絡先がすべて削除されます</div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="btn btn-sm" onclick="closeDeleteModal()">キャンセル</button>
+        <button class="btn btn-danger btn-sm" onclick="doDelete()"><i class="ti ti-trash"></i> 削除する</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 粉砕モーダル -->
+<div id="nuke-modal-view" style="display:none">
+  <div class="modal-bg">
+    <div class="modal" style="text-align:center">
+      <div style="font-size:36px;margin-bottom:8px">💣</div>
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px;color:#E24B4A">全データを削除しますか？</div>
+      <div style="font-size:13px;color:#666;margin-bottom:16px">登録されているすべての住民データが削除されます。この操作は元に戻せません。</div>
+      <div style="margin-bottom:14px">
+        <label>パスワードを入力してください</label>
+        <input type="password" id="nuke-confirm-input" placeholder="パスワードを入力" style="text-align:center;font-size:18px" />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="btn btn-sm" onclick="closeNuke()">キャンセル</button>
+        <button class="btn btn-danger btn-sm" onclick="doNuke()"><i class="ti ti-bomb"></i> 粉砕！</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ヘルプ -->
+<div id="help-view" style="display:none">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <button class="btn btn-sm" onclick="closeHelp()"><i class="ti ti-arrow-left"></i> 戻る</button>
+    <span style="font-size:16px;font-weight:500">🐱 ヘルプ</span>
+  </div>
+  <div class="card">
+    <div class="help-section">
+      <h3><i class="ti ti-login" style="color:#1D9E75"></i> ログイン</h3>
+      <p>パスワード「こどもがつくるまち」を入力してログインします。漢字混じりでも入力できます。</p>
+    </div>
+    <div class="help-section">
+      <h3><span class="sync-dot"></span> リアルタイム同期</h3>
+      <p>データはクラウドに保存され、サイトを訪れた全員がリアルタイムで同じデータを共有・編集できます。</p>
+    </div>
+    <div class="help-section">
+      <h3><i class="ti ti-user-plus" style="color:#1D9E75"></i> 新規追加</h3>
+      <p>「新規追加」ボタンを押すと、名前（ひらがな）と電話番号を入力するフォームが開きます。保存すると001番から順に番号が自動で割り振られます。</p>
+    </div>
+    <div class="help-section">
+      <h3><i class="ti ti-search" style="color:#1D9E75"></i> 検索</h3>
+      <p>名前・電話番号・番号のいずれかを入力すると、リアルタイムで絞り込み検索ができます。</p>
+    </div>
+    <div class="help-section">
+      <h3><i class="ti ti-edit" style="color:#1D9E75"></i> 編集 / <i class="ti ti-trash" style="color:#E24B4A"></i> 削除</h3>
+      <p>一覧の各ボタンから編集・削除ができます。削除は確認画面があります。</p>
+    </div>
+    <div class="help-section">
+      <h3><i class="ti ti-bomb" style="color:#E24B4A"></i> 粉砕！（全データ削除）</h3>
+      <p>すべての住民データを一括削除します。確認のため「粉砕」と入力が必要です。</p>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const PASSWORDS=["こどもがつくるまち","子どもが作るまち","子供が作るまち","こどもが作るまち","子どもがつくるまち","子供がつくるまち","コドモガツクルマチ"];
+window._loggedIn=false;
+window._dbData=[];
+let deletingFbKey=null, editingFbKey=null;
+
+function autoHyphenTel(el){
+  let v=el.value.replace(/[^\d]/g,"");
+  if(v.length<=3) el.value=v;
+  else if(v.length<=7) el.value=v.slice(0,3)+"-"+v.slice(3);
+  else el.value=v.slice(0,3)+"-"+v.slice(3,7)+"-"+v.slice(7,11);
+}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function hideAll(){["login-view","main-view","add-modal-view","delete-modal-view","nuke-modal-view","help-view"].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display="none";});}
+
+function tryLogin(){
+  const v=document.getElementById("pw-input").value.trim();
+  if(PASSWORDS.includes(v)){
+    document.getElementById("pw-error").style.display="none";
+    window._loggedIn=true;
+    hideAll();
+    document.getElementById("main-view").style.display="block";
+    renderList();
+  } else {
+    document.getElementById("pw-error").style.display="block";
+  }
+}
+document.getElementById("pw-input").addEventListener("keydown",e=>{if(e.key==="Enter")tryLogin();});
+function logout(){window._loggedIn=false;hideAll();document.getElementById("login-view").style.display="block";}
+
+function renderList(){
+  const data=window._dbData||[];
+  const q=(document.getElementById("search-input")||{value:""}).value.trim().toLowerCase();
+  let filtered=q?data.filter(d=>d.name.toLowerCase().includes(q)||d.tel.replace(/-/g,"").includes(q.replace(/-/g,""))||d.num.includes(q)):data;
+  document.getElementById("count-badge").textContent=`（${data.length}名登録中${q?" / "+filtered.length+"件表示":""}）`;
+  const el=document.getElementById("jumin-list");
+  if(!filtered.length){el.innerHTML=`<div class="empty-state"><div style="font-size:32px;margin-bottom:8px">🐱</div>${data.length===0?"まだ住民が登録されていません":"該当する住民が見つかりません"}</div>`;return;}
+  el.innerHTML=filtered.map(d=>`
+    <div class="jumin-row">
+      <span class="tag-num">${esc(d.num)}</span>
+      <span class="jumin-name">${esc(d.name)}</span>
+      <span class="jumin-tel">${esc(d.tel)}</span>
+      <span class="jumin-actions">
+        <button class="btn btn-sm" onclick="showEditModal('${d.fbKey}')" aria-label="編集"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-sm" onclick="showDeleteModal('${d.fbKey}')" aria-label="削除" style="color:#E24B4A"><i class="ti ti-trash"></i></button>
+      </span>
+    </div>`).join("");
+}
+
+function showAddModal(){
+  editingFbKey=null;
+  document.getElementById("modal-title").textContent="新規住民追加";
+  document.getElementById("modal-save-btn").innerHTML='<i class="ti ti-check"></i> 保存';
+  document.getElementById("inp-name").value="";
+  document.getElementById("inp-tel").value="";
+  document.getElementById("modal-err").style.display="none";
+  document.getElementById("inp-sibling").checked=false;
+  document.getElementById("sibling-select-wrap").style.display="none";
+  // 親番号の選択肢を生成（サフィックスなしの番号のみ）
+  const data=window._dbData||[];
+  const parents=data.filter(d=>/^\d+$/.test(d.num));
+  const sel=document.getElementById("inp-parent-num");
+  sel.innerHTML=parents.map(d=>`<option value="${d.num}">${d.num}：${d.name}</option>`).join("");
+  const maxNum=data.length?Math.max(...data.map(d=>parseInt(d.num))):0;
+  document.getElementById("modal-assign").textContent=`番号 ${String(maxNum+1).padStart(3,"0")} が割り振られます`;
+  hideAll();
+  document.getElementById("main-view").style.display="block";
+  document.getElementById("add-modal-view").style.display="block";
+}
+function toggleSiblingSelect(){
+  const checked=document.getElementById("inp-sibling").checked;
+  document.getElementById("sibling-select-wrap").style.display=checked?"block":"none";
+  if(checked){
+    const data=window._dbData||[];
+    const sel=document.getElementById("inp-parent-num");
+    const parentNum=sel.value;
+    if(parentNum) updateSiblingAssign(parentNum);
+  } else {
+    const data=window._dbData||[];
+    const maxNum=data.length?Math.max(...data.map(d=>parseInt(d.num))):0;
+    document.getElementById("modal-assign").textContent=`番号 ${String(maxNum+1).padStart(3,"0")} が割り振られます`;
+  }
+}
+function updateSiblingAssign(parentNum){
+  const data=window._dbData||[];
+  const usedSuffixes=data.filter(d=>d.num.startsWith(parentNum)&&/[a-z]$/.test(d.num)).map(d=>d.num.replace(parentNum,""));
+  const alpha="abcdefghijklmnopqrstuvwxyz";
+  let next="a";
+  for(let i=0;i<alpha.length;i++){if(!usedSuffixes.includes(alpha[i])){next=alpha[i];break;}}
+  document.getElementById("modal-assign").textContent=`番号 ${parentNum}${next} が割り振られます`;
+}
+function showEditModal(fbKey){
+  const d=(window._dbData||[]).find(x=>x.fbKey===fbKey);if(!d)return;
+  editingFbKey=fbKey;
+  document.getElementById("modal-title").textContent="住民情報を編集";
+  document.getElementById("modal-save-btn").innerHTML='<i class="ti ti-check"></i> 更新';
+  document.getElementById("inp-name").value=d.name;
+  document.getElementById("inp-tel").value=d.tel;
+  document.getElementById("modal-err").style.display="none";
+  document.getElementById("modal-assign").textContent=`番号：${d.num}`;
+  hideAll();
+  document.getElementById("main-view").style.display="block";
+  document.getElementById("add-modal-view").style.display="block";
+}
+function modalBgClick(e){if(e.target===e.currentTarget)closeModal();}
+function closeModal(){hideAll();document.getElementById("main-view").style.display="block";renderList();}
+async function saveModal(){
+  const name=document.getElementById("inp-name").value.trim();
+  const tel=document.getElementById("inp-tel").value.trim();
+  const err=document.getElementById("modal-err");
+  if(!name){err.textContent="名前を入力してください";err.style.display="block";return;}
+  if(!tel){err.textContent="電話番号を入力してください";err.style.display="block";return;}
+  err.style.display="none";
+  const btn=document.getElementById("modal-save-btn");
+  const origHTML=btn.innerHTML;
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2"></i> 保存中...';
+  try{
+    if(editingFbKey){await window.dbUpdate(editingFbKey,name,tel);}
+    else{
+      const isSibling=document.getElementById("inp-sibling").checked;
+      const parentNum=isSibling?document.getElementById("inp-parent-num").value:null;
+      await window.dbAdd(name,tel,parentNum);
+    }
+    closeModal();
+  }catch(e){err.textContent="保存に失敗しました。Firebaseの設定・ルールを確認してください。";err.style.display="block";btn.disabled=false;btn.innerHTML=origHTML;}
+}
+
+function showDeleteModal(fbKey){
+  deletingFbKey=fbKey;
+  const d=(window._dbData||[]).find(x=>x.fbKey===fbKey);if(!d)return;
+  document.getElementById("delete-preview").innerHTML=
+    `<div><span style="color:#999;font-size:12px">番号</span>　${esc(d.num)}</div>`+
+    `<div><span style="color:#999;font-size:12px">名前</span>　${esc(d.name)}</div>`+
+    `<div><span style="color:#999;font-size:12px">連絡先</span>　${esc(d.tel)}</div>`;
+  hideAll();
+  document.getElementById("main-view").style.display="block";
+  document.getElementById("delete-modal-view").style.display="block";
+}
+function closeDeleteModal(){hideAll();document.getElementById("main-view").style.display="block";renderList();}
+async function doDelete(){
+  if(!deletingFbKey)return;
+  await window.dbDelete(deletingFbKey);
+  deletingFbKey=null;
+  closeDeleteModal();
+}
+
+function confirmNuke(){
+  document.getElementById("nuke-confirm-input").value="";
+  hideAll();
+  document.getElementById("main-view").style.display="block";
+  document.getElementById("nuke-modal-view").style.display="block";
+}
+function closeNuke(){hideAll();document.getElementById("main-view").style.display="block";renderList();}
+async function doNuke(){
+  if(document.getElementById("nuke-confirm-input").value.trim()==="2020"){
+    await window.dbNuke();
+    closeNuke();
+  } else {
+    alert("パスワードが違います");
+  }
+}
+
+function showHelp(){hideAll();document.getElementById("help-view").style.display="block";}
+function closeHelp(){hideAll();document.getElementById("main-view").style.display="block";renderList();}
+</script>
+</body>
+</html>
